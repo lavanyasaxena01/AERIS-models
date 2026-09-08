@@ -5,6 +5,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import cv2
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from PIL import Image
@@ -12,11 +15,12 @@ from PIL import Image
 from datasets.shared import (
     adjust_channels,
     load_image,
+    load_mask,
     normalize_image,
     resize_image,
 )
 from models.optical_sar_multimodal import OpticalSARChangeNet
-from utils.visualization import overlay_mask
+from utils.visualization import overlay_mask, to_rgb
 
 
 # ============================================================
@@ -505,6 +509,11 @@ def main():
     )
 
     parser.add_argument(
+        "--gt",
+        help="real ground-truth annotation for visualization and metrics",
+    )
+
+    parser.add_argument(
         "--min-region",
         type=int,
         default=20,
@@ -767,6 +776,13 @@ def main():
         min_area=args.min_region
     )
 
+    ground_truth = None
+    if args.gt:
+        ground_truth = load_mask(args.gt)
+        if ground_truth.shape != clean.shape:
+            ground_truth = resize_image(ground_truth, clean.shape, is_mask=True)
+        ground_truth = (ground_truth > 0).astype(np.uint8)
+
     print(
         f"\nDetected change regions: {len(regions)}"
     )
@@ -874,8 +890,13 @@ def main():
         out / "mask.png"
     )
 
+    optical_before_rgb = to_rgb(optical_before)
+    optical_after_rgb = to_rgb(optical_after_raw)
+    if optical_after_rgb.shape[:2] != clean.shape:
+        optical_after_rgb = resize_image(optical_after_rgb, clean.shape)
+
     overlay = overlay_mask(
-        optical_before,
+        optical_after_rgb,
         clean
     )
 
@@ -891,7 +912,7 @@ def main():
     # Region visualization
     # --------------------------------------------------------
 
-    visualization = optical_before.copy()
+    visualization = (optical_after_rgb * 255).astype(np.uint8)
 
     visualization = np.clip(
         visualization,
@@ -942,6 +963,58 @@ def main():
     ).save(
         out / "change_regions.png"
     )
+    Image.fromarray(visualization).save(out / "semantic_change.png")
+
+    Image.fromarray((to_rgb(optical_before) * 255).astype(np.uint8)).save(out / "image_t1.png")
+    Image.fromarray((optical_after_rgb * 255).astype(np.uint8)).save(out / "image_t2.png")
+    if ground_truth is not None:
+        Image.fromarray(ground_truth * 255).save(out / "ground_truth.png")
+    Image.fromarray(clean * 255).save(out / "prediction_mask.png")
+    probability_rgb = plt.get_cmap("viridis")(probability)[..., :3]
+    Image.fromarray((probability_rgb * 255).astype(np.uint8)).save(out / "probability_map.png")
+    Image.fromarray((overlay * 255).astype(np.uint8)).save(out / "changed_regions.png")
+
+    panels = [
+        to_rgb(optical_before), optical_after_rgb,
+        np.stack([ground_truth] * 3, -1).astype(np.float32) if ground_truth is not None else np.zeros((*clean.shape, 3), dtype=np.float32),
+        np.stack([clean] * 3, -1).astype(np.float32), probability_rgb, overlay,
+    ]
+    titles = ["T1", "T2", "Ground Truth", "Prediction", "Probability Map", "Changed Regions"]
+    fig, axes = plt.subplots(1, 6, figsize=(19, 3.8))
+    for ax, panel, title in zip(axes, panels, titles):
+        image = ax.imshow(np.clip(panel, 0, 1), cmap="viridis" if title == "Probability Map" else None)
+        ax.set_title(title, fontsize=9)
+        ax.axis("off")
+        if title == "Probability Map":
+            fig.colorbar(image, ax=ax, fraction=0.046, pad=0.04)
+    fig.tight_layout()
+    fig.savefig(out / "comparison.png", dpi=130, bbox_inches="tight")
+    plt.close(fig)
+
+    if ground_truth is not None:
+        gt_b, pred_b = ground_truth.astype(bool), clean.astype(bool)
+        tp = np.logical_and(gt_b, pred_b).sum()
+        fp = np.logical_and(~gt_b, pred_b).sum()
+        fn = np.logical_and(gt_b, ~pred_b).sum()
+        tn = np.logical_and(~gt_b, ~pred_b).sum()
+        precision = tp / max(tp + fp, 1)
+        recall = tp / max(tp + fn, 1)
+        dice = 2 * tp / max(2 * tp + fp + fn, 1)
+        iou = tp / max(tp + fp + fn, 1)
+        accuracy = (tp + tn) / max(tp + fp + fn + tn, 1)
+        print(f"IoU: {iou:.6f}")
+        print(f"Dice/F1: {dice:.6f}")
+        print(f"Precision: {precision:.6f}")
+        print(f"Recall: {recall:.6f}")
+        print(f"Accuracy: {accuracy:.6f}")
+
+    print(f"checkpoint used: {args.checkpoint}")
+    print(f"input image pair: {args.opt_t1} | {args.opt_t2} plus SAR pair {args.sar_t1} | {args.sar_t2}")
+    print(f"ground-truth annotation: {args.gt or 'not provided'}")
+    print(f"threshold: {args.threshold}; minimum region area: {args.min_region}")
+    print(f"prediction statistics: changed pixels={int(clean.sum())}, total pixels={clean.size}, changed percent={100 * clean.mean():.2f}%, regions={len(region_results)}")
+    print(f"output directory: {out}")
+    print("generated PNG files: " + ", ".join(p.name for p in sorted(out.glob("*.png"))))
 
     # --------------------------------------------------------
     # Result text
