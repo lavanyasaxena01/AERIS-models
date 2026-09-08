@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Datasets
+datasets/*
+
+# Keep dataset loader code
+!datasets/__init__.py
+!datasets/shared.py
+!datasets/optical_change_dataset.py
+!datasets/optical_sar_dataset.py
+
+# Generated inference results
+outputs/
+
+# Training runs/checkpoints
+runs/
+
+# PyTorch generated cache
+torchinductor_*/
+torch_compile_cache/
+
+# Model checkpoints
+*.pt
+*.pth
+*.ckpt
+
+# Environment/secrets
+.env
+.env.*
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

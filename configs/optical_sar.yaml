@@ -1,0 +1,62 @@
+seed: 42
+device: auto
+
+model:
+  optical_channels: 3
+  sar_channels: 2                # VV + VH (use 1 if only one pol available)
+  encoder_widths: [64, 128, 256]
+  encoder_blocks: [2, 2, 2]
+  out_strides: [8, 16, 32]
+  decoder_channels: 256
+  temporal_mode: difference      # difference | attention
+  fusion_mode: gated   # cross_attention | gated | concat
+  fusion_heads: 4
+
+dataset:
+  type: slag
+  root: C:\Users\nidhi\Favorites\Downloads\AERIS\datasets\Opt-sar-model_dataset        # [{split}/]optical_t1,optical_t2,sar_t1,sar_t2,label
+  val_split: val
+  optical_channels: 3
+  sar_channels: 2
+  # Optical: raw 0-255 stats (or [0,1] stats if you pre-scale)
+  optical_mean: [123.675, 116.28, 103.53]
+  optical_std: [58.395, 57.12, 57.375]
+  # SAR: set from TRAIN split statistics. If stored in dB, a reasonable start
+  # for Sentinel-1 GRD is mean [-13, -20], std [5, 6] for VV/VH + clip [-35, 5].
+  sar_mean: [-13.0, -20.0]
+  sar_std: [5.0, 6.0]
+  sar_clip: [-35.0, 5.0]
+  sar_log_db: false              # true only if SAR is stored as LINEAR power
+  check_georef: true             # CRS/transform equality check (needs rasterio + GeoTIFF)
+  augment:
+    scale_min: 0.75
+    crop_size: 256
+    hflip_p: 0.5
+    vflip_p: 0.5
+    rotate90: true
+    brightness_contrast_p: 0.3   # applied to optical ONLY
+
+training:
+  epochs: 5
+  batch_size: 8                  # multimodal = 2 encoders; halve vs optical-only
+  lr: 0.0003
+  weight_decay: 0.01
+  scheduler: cosine
+  amp: true
+  grad_clip: 1.0
+  early_stopping_patience: 15
+  num_workers: 4
+
+loss:
+  type: bce_dice
+  pos_weight: 5.0
+  bce_weight: 1.0
+  dice_weight: 1.0
+
+eval:
+  threshold: 0.5
+  select_metric: f1
+  save_val_predictions: 8
+
+output:
+  dir: runs/optical_sar

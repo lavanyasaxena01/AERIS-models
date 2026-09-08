@@ -1,0 +1,53 @@
+seed: 42
+device: auto
+
+model:
+  in_channels: 3                 # >3 for multispectral
+  encoder_widths: [64, 128, 256, 512]
+  encoder_blocks: [2, 2, 2, 2]
+  out_strides: [4, 8, 16, 32]    # input H,W must be divisible by 32 (use [4,8,16] for 16)
+  decoder_channels: 256
+  temporal_mode: difference      # difference | attention
+
+dataset:
+  type: levir                    # levir | whu | dsifn (or pass subdirs in code)
+  root: C:\Users\nidhi\Favorites\Downloads\AERIS\datasets\LEVIR CD        # contains train/ val/ test/ with A/ B/ label/
+  val_split: val
+  in_channels: 3
+  mean: [123.675, 116.28, 103.53]    # 8-bit optical scaled to [0,1] first? see note below
+  std: [58.395, 57.12, 57.375]
+  # NOTE: loader feeds raw pixel values (0-255). For 0-255 data either set
+  # mean: [123.675, 116.28, 103.53], std: [58.395, 57.12, 57.375]
+  # or pre-scale your dataset to [0,1] and keep ImageNet stats.
+  augment:
+    scale_min: 0.75
+    crop_size: 128
+    hflip_p: 0.5
+    vflip_p: 0.5
+    rotate90: true
+    brightness_contrast_p: 0.3   # optical-only photometric jitter
+
+training:
+  epochs: 2
+  batch_size: 1
+  lr: 0.0003
+  weight_decay: 0.01
+  scheduler: cosine              # cosine | onecycle | none
+  amp: true
+  grad_clip: 1.0
+  early_stopping_patience: 15
+  num_workers: 0
+
+loss:
+  type: bce_dice                 # bce_dice | focal | focal_dice | tversky
+  pos_weight: 5.0                # tune to ~(#neg/#pos) ratio of the dataset
+  bce_weight: 1.0
+  dice_weight: 1.0
+
+eval:
+  threshold: 0.5
+  select_metric: f1              # best-model selection: f1 | iou | dice ...
+  save_val_predictions: 8
+
+output:
+  dir: runs/optical
